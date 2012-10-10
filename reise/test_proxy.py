@@ -17,10 +17,14 @@ for i in xrange(20):
     f.write('=============================================================\n')
     f.write(buffer)
     end = buffer.find('\n')
-    
-    print buffer
+    print len(buffer)
+    #print buffer, end
     #print buffer[:end]
-    host = buffer[:end].split()[1]
+    try:
+        host = buffer[:end].split()[1]
+    except IndexError:
+        print "BUFFER IS PROBABLY EMPTY"
+    
     end = host[7:].find('/')
 
     print host[7:(end+7)]
@@ -30,7 +34,7 @@ for i in xrange(20):
     out.connect((host_ip, 80))
     out.sendall(buffer)
     print 'recieving data from remote host'
-    reply = out.recv(4096)
+    reply = out.recv(65536)
     out.close()
     print 'data recieved from remote host'
     f.write('+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n')
