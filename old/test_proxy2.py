@@ -125,15 +125,15 @@ class ClientThread(threading.Thread):
 #return the joined data
         return ''.join(data)
 
+if __name__ == '__main__':
+    #create Queue object
+    clientPool = Queue.Queue()
+    #start 5 threads
+    for i in range(5):
+        ClientThread().start()
+    #put tcp.accepts into queue for as long as they come
+    while 1:
+        clientPool.put(tcp.accept())
 
-#create Queue object
-clientPool = Queue.Queue()
-#start 5 threads
-for i in range(5):
-    ClientThread().start()
-#put tcp.accepts into queue for as long as they come
-while 1:
-    clientPool.put(tcp.accept())
 
-
-tcp.close()
+    tcp.close()

@@ -6,6 +6,7 @@ import socket
 import Queue
 import time
 from sys import argv
+import re
 #TODO 
 #- initial testing shows that this script uses about 30% of the CPU, so it would
 #be nice to think about optimizing it later. Maybe Cython?
@@ -22,13 +23,38 @@ from sys import argv
 
 
 class tcpProxy(object):
-    def __init__(self, target, port, threads, l4):
+    def __init__(self, target, threads, l4):
+        try:
+            verify_target_input(target)
+        except ValueError:
+            exit()
+        except IndexError:
+            exit()
         self._l4 = l4
         self._tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         #gets local IP by getfqdn, might be buggy though, giving IP of wrong interface
         self._tcp.bind((socket.gethostbyname(socket.getfqdn()), port))
         self._tcp.listen(10)
 
+    def verify_target_input(self, target):
+        outbound = target.split(':')
+        outbound_ip = [int(i) for i in outbound[0].split('.')]
+
+        if int(outbound[1]) > 0 and int(outbound[1]) < 65535:
+            port = int(outbound[1])
+        if len(outbound_ip) == 4:
+            for i in outbound_ip:
+                if i <= 0 or i >= 255:
+                    raise ValueError('IP too large or too small')
+        else:
+            raise IndexError('IP too short or too long')
+
+        return outbound_ip, port
+
+        
+
+            
+            
 
 
 
@@ -46,7 +72,7 @@ class tcpProxy(object):
 #ClientThread class subclasses threading.Thread class
 class ClientThread(threading.Thread):
     def run(self, l4, target):
-    connection = {'tcp': connect_tcp, 'udp': connect_udp}
+        connection = {'tcp': connect_tcp, 'udp': connect_udp}
         while 1:
             print '[starting thread]'
             try:
@@ -151,7 +177,7 @@ class ClientThread(threading.Thread):
 
 
 #example code, place-holder
-if name == '__main__':
+if __name__ == '__main__':
     script, target, port, threads, protocol = argv
     proxy = tcpProxy(target, port, threads, protocol)
     proxy.run()
