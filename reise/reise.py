@@ -6,31 +6,23 @@ import socket
 import Queue
 import time
 from sys import argv
-#TODO 
-#- initial testing shows that this script uses about 30% of the CPU, so it would
-#be nice to think about optimizing it later. Maybe Cython?
-#- think about using getopt instead of just argv, might make things easier and nicer.
-
-#To make this class more universal, I should let the user be able to chose source
-#and destination ports. By default they could be 80 and 53. I must also get a resource
-#to forge dns packets along with being able to fragment them as normal dns packet size is
-#512 bytes whereas normal http packets size is about 1500 bytes. Main issue now is
-#to make this project highly reusable. Best idea so far is have some default values
-#that can be overridden in the script. Will this impact the performance?
-#Gotta think about the general tcpProxy class structure.
 
 
-#Think about this
-#- using decorators for building spoofed packets
-#- using an external configuration file for the script to run on
-
+#TODO:
+#- finish CLI arguments
+#- packets fragmentation and sequencing
+#- refactor a few functions according to execution time
+#- complete main __init__ functions
+#- add udpProxy based on tcpProxy
+#- add docstrings to functions
+#- add tests for functions
 
 class reise(object):
 
 
     class tcpProxy(object):
 
-        def __init__(self, target, threads, l4):
+        def __init__(self, local='127.0.0.1:8088', target=None, threads=6, l4='tcp'):
             #ask for user input via argv here?
 
             try:
@@ -71,10 +63,7 @@ class reise(object):
 
             return '.'.join(str(i) for i in outbound_ip), port
 
-            
 
-                
-                
 
 
 
@@ -119,7 +108,7 @@ class reise(object):
                 msg.close()
 
         def getIP(self, buffer):
-            #have to do good unit testin and refactoring on this function
+            ##have to do good unit testin and refactoring on this function
             end = buffer.find('/n')
             try:
                 host = buffer[:end].split()[1]      
@@ -207,26 +196,31 @@ class reise(object):
 
         def fragment_and_sequence(self, data):
             pass
-def __init__(self):
-
-    loadConfig()
 
 
-def load_config(self):
-    try:
-        config_file = open('reise.conf')
-    except IOError:
-        print 'Problem reading reise.conf file'
-
-    #this function should handle most of the config file
-    #knowing which lines to load and what the configuration does
-    #to the tcpProtocol class and clientThread classes.
-
-
-
-
-#example code, place-holder
+#scaffolding
 if __name__ == '__main__':
-    script, target, port, threads, protocol = argv
+
+    #working on CLI arguments and finally and final structure of program 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-l', '--local', help = 'The local [ip:port] on which to listen to,\
+                                     blank is 127.0.0.1  AUTO is set by socket.getfqdn()',
+                                    default = '127.0.0.0:8088')
+    parser.add_argument('-t', '--target', help = 'The target host [ip:port], blank on tcp defaults to \
+                                         global, blank on udp defaults to localhost', )
+    parser.add_argument('-p', '--protocol', help = 'Outbound protocl to use. Default tcp or udp for \
+                                         udp', default = 'tcp')
+    parser.add_argument('-n', '--nthreads', help = 'The number of connection/receive threads to \
+                                            run, blank is 6', default = 6)
+    parser.add_argument('-r', '--proxy', help = 'Type of proxy to run on the local machine',
+                                         default = 'tcp')
+    args = parser.parse_args()
+
+    print args
+
+    print args.local
+    print args.protocol
+
+    #placeholder code for now
     proxy = tcpProxy(target, port, threads, protocol)
     proxy.run()
