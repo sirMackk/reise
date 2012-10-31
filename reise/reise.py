@@ -9,13 +9,14 @@ from sys import argv
 
 
 #TODO:
-#- finish CLI arguments
-#- packets fragmentation and sequencing
+#- finish CLI arguments - think about this later on
+#- packets fragmentation and sequencing - ALMOST COMPLETE
 #- refactor a few functions according to execution time
-#- complete main __init__ functions
+#- complete main __init__ functions - bundle this with testing
 #- add udpProxy based on tcpProxy
 #- add docstrings to functions
-#- add tests for functions
+#- add tests for functions - bundle this with refactoring
+#- add SSH tunneling between proxies
 
 class reise(object):
 
@@ -23,8 +24,6 @@ class reise(object):
     class tcpProxy(object):
 
         def __init__(self, local='127.0.0.1:8088', target=None, threads=6, l4='tcp'):
-            #ask for user input via argv here?
-
             try:
                 verify_target_input(target)
             except ValueError:
@@ -81,7 +80,8 @@ class reise(object):
     #ClientThread class subclasses threading.Thread class
     class ClientThread(threading.Thread):
         #this class is the actual receiving and sending interface to work with.
-        def run(self, l4, target):
+        def run(self, l4, target, size=505):
+            self.SIZE = size;
             connection = {'tcp': connect_tcp, 'udp': connect_udp}
             while 1:
                 #refactor the next 9 lines of code later
@@ -179,7 +179,9 @@ class reise(object):
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             #make port mutable
             s.connect((ip, 80))
-            s.sendall(data)
+            #USES FRAGMENTING FUNCTION, DOUBLE CHECK THIS LATER / SAME FOR CONNECT_UDP
+            for i in fragment_and_sequence(data):
+                s.sendall(data)
             data = recv_data(s)
             s.close()
             return data
@@ -190,12 +192,22 @@ class reise(object):
             #this is the part that decides which spoofing protocol to use
             #or to send raw data. The protocol should also be able to
             #fragment and sequence packets just in case size differs.
-
-            s.sendto(data, (ip, 53))
+            for i in fragment_and_sequence(data):
+                s.sendto(data, (ip, 53))
             return recv_udp(s)
 
-        def fragment_and_sequence(self, data):
-            pass
+        def fragment_and_sequence(self, pack):
+            '''
+            This generator is responsible for fragmentation and sequencing of data.
+            It uses self._SIZE for maximum packet size and it adds 7 bytes for sequencing.
+            Maximum number of sequenced packets is 999 for now. 
+            It adds a 7 byte long string with in the format of frag_num#num_of_frags#fragment.
+            '''
+            #might need delimiter at the end of fragment maybe?
+            max = len(pack)/self.SIZE+1
+            frags = ['%s#%s#%s' % (str((i/self.SIZE)+1), str(max), pack[(0+i):(self.SIZE+i)]) for i in [j*self.SIZE for j in xrange(0, max)]]
+            for i in frags:
+                yield i
 
 
 #scaffolding
