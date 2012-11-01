@@ -5,43 +5,52 @@ import threading
 import socket
 import Queue
 import time
-from sys import argv
+from sys import argv, exit
+import argparse
 
 
 #TODO:
 #- finish CLI arguments - think about this later on
-#- packets fragmentation and sequencing - ALMOST COMPLETE
 #- refactor a few functions according to execution time
 #- complete main __init__ functions - bundle this with testing
 #- add udpProxy based on tcpProxy
 #- add docstrings to functions
 #- add tests for functions - bundle this with refactoring
 #- add SSH tunneling between proxies
+#- check if recv_http and connect_http functions are a must
 
 class reise(object):
 
 
     class tcpProxy(object):
 
-        def __init__(self, local='127.0.0.1:8088', target=None, threads=6, l4='tcp'):
-            try:
-                verify_target_input(target)
-            except ValueError:
-                exit()
-            except IndexError:
-                exit()
+        def __init__(self, local='127.0.0.1:8088', target=None, threads=6, l4='http'):
+            # try:
+            #     _verify_target_input(target)
+            # except ValueError:
+            #     exit()
+            # except IndexError:
+            #     exit()
+            self._threads = threads
             self._l4 = l4
             self._tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            #gets local IP by getfqdn, might be buggy though, giving IP of wrong interface
-            self._tcp.bind((socket.gethostbyname(socket.getfqdn()), port))
-            self._tcp.listen(10)
+            ##local and IP should be checked by verify_target_input and remain a tuple.
 
-        def _verify_target_input(self, target):
+            #gets local IP by getfqdn, might be buggy though, giving IP of wrong interface
+            ##double check this section later
+            self._tcp.bind(self.verify_target_input(local))
+
+            self._target = self.verify_target_input(target)
+
+
+        def verify_target_input(self, target):
             '''
             This function verifies the user input for the target IP.
             It makes sure that the address is an IPv4 decimal dotted
             notation address with a port.
             '''
+            if target is None:
+                return None
 
             outbound = target.split(':')
             try:
@@ -60,7 +69,7 @@ class reise(object):
             else:
                 raise IndexError('IP too short or too long')
 
-            return '.'.join(str(i) for i in outbound_ip), port
+            return ('.'.join(str(i) for i in outbound_ip), port)
 
 
 
@@ -68,26 +77,38 @@ class reise(object):
 
             
         #Doesn't work, just a place-holder
-            def start(self):
-                clientPool = Queue.Queue()
-                for i in range(5):
-                    ClientThread().start(l4, target)
-                while 1:
-                    clientPool.put(tcp.accept())
+        def start(self):
+            self._tcp.listen(10)
+            clientPool = Queue.Queue()
+            for i in xrange(self._threads):
+                reise.ClientThread(self._l4, self._target, clientPool).start()
+            while 1:
+                clientPool.put(self._tcp.accept())
 
-                tcp.close()
+            self._tcp.close()
 
     #ClientThread class subclasses threading.Thread class
     class ClientThread(threading.Thread):
         #this class is the actual receiving and sending interface to work with.
-        def run(self, l4, target, size=505):
-            self.SIZE = size;
-            connection = {'tcp': connect_tcp, 'udp': connect_udp}
+        def __init__(self, l4, target, clientPool):
+            #size temporary
+            self.SIZE = 506
+            self.TIMEOUT = 2
+            self.target = target
+            self.l4 = l4
+            self.pool = clientPool
+            threading.Thread.__init__(self)
+
+        def run(self):
+            # self.SIZE = size
+            # self.TIMEOUT = 2
+            connection = {'tcp': self.connect_tcp, 'udp': self.connect_udp, 'http': self.connect_http}
+
             while 1:
                 #refactor the next 9 lines of code later
                 print '[starting thread]'
                 try:
-                    item = clientPool.get()
+                    item = self.pool.get()
                     #item = clientPool.get(True, 10)
                 except Queue.Empty:
                     print 'EMPTY EMPTY'
@@ -96,15 +117,13 @@ class reise(object):
                     print 'NONE'
                     break
                 msg, addr = item
-                #recieving should also use a defined spoofed protocol
-                #filter as well as sequencing and defragmenting. Default would
-                #be raw
                 buffer = msg.recv(8192)   
                 print 'Buffer length: %d' % len(buffer)
-                connection[l4](buffer, target)            
+                data = connection[self.l4](buffer, self.target)            
                 print 'got reply, closing socket, sending back to localhost'
-                print data
+                # print data
                 msg.sendall(data)
+                print 'sent'
                 msg.close()
 
         def getIP(self, buffer):
@@ -126,6 +145,12 @@ class reise(object):
             #recieves all the tcp packets on a connection. This is not true, recv
             #works similiarly to send. This function is to recv what sendall is to send.
         def recv_data(self, out):
+            '''
+            This function is responsible for receiving all the data through
+            a TCP connection. The timeout values are in seconds.
+            The function also sorts the packets and removes the 6 byte header from
+            them.
+            '''
             out.setblocking(0)
 
             data = []
@@ -133,9 +158,9 @@ class reise(object):
 
             start = time.time()
             while 1:
-                if data and time.time() - start > 2:
+                if data and time.time() - start > self.TIMEOUT:
                     break
-                elif time.time() - start > 4:
+                elif time.time() - start > self.TIMEOUT*2:
                     break
                 try:
                     recv = out.recv(8192)
@@ -146,19 +171,42 @@ class reise(object):
                         time.sleep(0.1)
                 except:
                     pass
+            data.sort()
+            #returns a string compromised of fragments with the headers removed
+            return ''.join([i[6:] for i in data])
+
+        def recv_http(self, out):
+            out.setblocking(0)
+            data = []
+            recv = ''
+
+            start = time.time()
+            while 1:
+                if data and time.time() - start > self.TIMEOUT:
+                    break
+                elif time.time() - start > self.TIMEOUT*2:
+                    break
+                try:
+                    recv = out.recv(8192)
+                    if recv:
+                        data.append(recv)
+                        start = time.time()
+                    else:
+                        tmie.sleep(0.1)
+                except:
+                    pass
             return ''.join(data)
 
         def recv_udp(self, udp):
-            print 'engaging recv_udp function'
             udp.setblocking(0)
             data = []
             recv = ''
             start = time.time()
 
             while 1:
-                if data and time.time() - start > 2:
+                if data and time.time() - start > self.TIMEOUT:
                     break
-                elif time.time() - start > 4:
+                elif time.time() - start > self.TIMEOUT*2:
                     break
                 try:
                     recv, addr = udp.recvfrom(2048)
@@ -170,44 +218,52 @@ class reise(object):
                         time.sleep(0.1)
                 except:
                     pass
-            
-            return ''.join(data)
+            data.sort()
+            #returns a string compromised of fragments with the headers removed
+            return ''.join([i[6:] for i in data])
 
-        def connect_tcp(self, data, ip):
-            if ip is None:
-                ip = self.getIP(data)
+        def connect_tcp(self, data, ip_port):
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             #make port mutable
-            s.connect((ip, 80))
+            s.connect(ip_port)
             #USES FRAGMENTING FUNCTION, DOUBLE CHECK THIS LATER / SAME FOR CONNECT_UDP
+
             for i in fragment_and_sequence(data):
-                s.sendall(data)
-            data = recv_data(s)
+                s.sendall(i)
+            data = self.recv_data(s)
             s.close()
             return data
 
-        def connect_udp(self, data, ip):
+        def connect_udp(self, data, ip_port):
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             #make port mutable
             #this is the part that decides which spoofing protocol to use
             #or to send raw data. The protocol should also be able to
             #fragment and sequence packets just in case size differs.
             for i in fragment_and_sequence(data):
-                s.sendto(data, (ip, 53))
-            return recv_udp(s)
+                s.sendto(i, ip_port)
+            return self.recv_udp(s)
+
+        def connect_http(self, data, ip_port=None):
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.connect((self.getIP(data), 80))
+            s.sendall(data)
+            data = self.recv_http(s)
+            s.close()
+            return data
 
         def fragment_and_sequence(self, pack):
             '''
-            This generator is responsible for fragmentation and sequencing of data.
-            It uses self._SIZE for maximum packet size and it adds 7 bytes for sequencing.
+            This function is responsible for fragmentation and sequencing of data.
+            It uses self._SIZE for maximum packet size and it adds 6 bytes for sequencing.
             Maximum number of sequenced packets is 999 for now. 
-            It adds a 7 byte long string with in the format of frag_num#num_of_frags#fragment.
+            It adds a 6 byte long string with in the format of frag_num|num_of_frags|fragment.
             '''
-            #might need delimiter at the end of fragment maybe?
+            ##think about the second number, maybe packets dont need the extra info about
+            ##x out of y for their size, it's not used in sorting it anyway, as you previously
+            ##though would be needed. That's 3 bytes saved per packet.
             max = len(pack)/self.SIZE+1
-            frags = ['%s#%s#%s' % (str((i/self.SIZE)+1), str(max), pack[(0+i):(self.SIZE+i)]) for i in [j*self.SIZE for j in xrange(0, max)]]
-            for i in frags:
-                yield i
+            return ['%03d%03d%s' % ((i/self.SIZE)+1, max, pack[(0+i):(self.SIZE+i)]) for i in [j*self.SIZE for j in xrange(0, max)]]
 
 
 #scaffolding

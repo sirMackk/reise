@@ -9,37 +9,37 @@ from reise.reise import *
 
 def test_verify_target_input():
     proxy = object.__new__(reise.tcpProxy)
-    assert_equal(proxy._verify_target_input('192.168.0.13:80'), ('192.168.0.13', 80))
+    assert_equal(proxy.verify_target_input('192.168.0.13:80'), ('192.168.0.13', 80))
 
 
 @raises(ValueError)
 def test_verify_target_input_bad_ip_range():
     proxy = object.__new__(reise.tcpProxy)
-    assert_equal(proxy._verify_target_input('192.168.0.256:80'), ('192.168.0.13', 80))
+    assert_equal(proxy.verify_target_input('192.168.0.256:80'), ('192.168.0.13', 80))
 
 @raises(ValueError)
 def test_verify_target_input_bad_port():
     proxy = object.__new__(reise.tcpProxy)
-    assert_equal(proxy._verify_target_input('192.168.0.256:ac'), ('192.168.0.13', 80))
+    assert_equal(proxy.verify_target_input('192.168.0.256:ac'), ('192.168.0.13', 80))
 
 @raises(ValueError)
 def test_verify_target_input_bad_ip_chars():
     proxy = object.__new__(reise.tcpProxy)
-    assert_equal(proxy._verify_target_input('192.a.0.256:27'), ('192.168.0.13', 80))
+    assert_equal(proxy.verify_target_input('192.a.0.256:27'), ('192.168.0.13', 80))
 
 @raises(IndexError)
 def test_verify_target_input_bad_ip_length():
     proxy = object.__new__(reise.tcpProxy)
-    assert_equal(proxy._verify_target_input('192.5.0.19.12:27'), ('192.5.0.12', 27))
+    assert_equal(proxy.verify_target_input('192.5.0.19.12:27'), ('192.5.0.12', 27))
 
 @raises(IndexError)
 def test_verify_target_input_bad_ip_length_port():
     proxy = object.__new__(reise.tcpProxy)
-    assert_equal(proxy._verify_target_input('192.5.0.19.12'), ('192.5.0.12', 27))
+    assert_equal(proxy.verify_target_input('192.5.0.19.12'), ('192.5.0.12', 27))
 
 def test_verify_target_input_bad_ip_whitespace():
     proxy = object.__new__(reise.tcpProxy)
-    assert_equal(proxy._verify_target_input('192.5.0 .12:27'), ('192.5.0.12', 27))
+    assert_equal(proxy.verify_target_input('192.5.0 .12:27'), ('192.5.0.12', 27))
 
 
 def test_fragment_and_sequence():
@@ -65,17 +65,17 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with this program; if not, write to the Free Software
 Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.'''
-    frag_pack = '1#30#\nCopyright (C) 2012  sir2#30#Mackk\n\nThis program is f3#30#ree ' \
-    'software; you can re4#30#distribute it and/or\nmod5#30#ify it under the terms o6#30#f' \
-    ' the GNU General Public7#30# License\nas published by8#30# the Free Software ' \
-    'Found9#30#ation; either version 2\n10#30#of the License, or (at y11#30#our option) any ' \
-    'later ve12#30#rsion.\n\nThis program is 13#30#distributed in the hope 14#30#that it ' \
-    'will be useful,\n15#30#but WITHOUT ANY WARRANTY16#30#; without even the impli17#30#ed ' \
-    'warranty of\nMERCHANTA18#30#BILITY or FITNESS FOR A 19#30#PARTICULAR PURPOSE.  '\
-    'See20#30# the\nGNU General Public 21#30#License for more details22#30#.\n\nYou should ' \
-    'have recei23#30#ved a copy of the GNU Ge24#30#neral Public License\nalo25#30#ng with '\
-    'this program; if26#30# not, write to the Free 27#30#Software\nFoundation, '\
-    'Inc28#30#., 51 Franklin Street, F29#30#ifth Floor, Boston, MA  30#30#02110-1301, USA.'
+    frag_pack = '001030\nCopyright (C) 2012  sir002030Mackk\n\nThis program is f003030ree ' \
+    'software; you can re004030distribute it and/or\nmod005030ify it under the terms o006030f' \
+    ' the GNU General Public007030 License\nas published by008030 the Free Software ' \
+    'Found009030ation; either version 2\n010030of the License, or (at y011030our option) any ' \
+    'later ve012030rsion.\n\nThis program is 013030distributed in the hope 014030that it ' \
+    'will be useful,\n015030but WITHOUT ANY WARRANTY016030; without even the impli017030ed ' \
+    'warranty of\nMERCHANTA018030BILITY or FITNESS FOR A 019030PARTICULAR PURPOSE.  '\
+    'See020030 the\nGNU General Public 021030License for more details022030.\n\nYou should ' \
+    'have recei023030ved a copy of the GNU Ge024030neral Public License\nalo025030ng with '\
+    'this program; if026030 not, write to the Free 027030Software\nFoundation, '\
+    'Inc028030., 51 Franklin Street, F029030ifth Floor, Boston, MA  03003002110-1301, USA.'
 
     packet_frags = []
     for i in cthread.fragment_and_sequence(packet):
