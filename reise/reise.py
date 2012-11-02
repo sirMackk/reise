@@ -10,6 +10,8 @@ import argparse
 
 
 #TODO:
+#- PRIORITY - figure out correct timeouts for receiving data, it's
+#             a huge bottleneck bandwidth wise and it makes TCP RSTs.
 #- finish CLI arguments - think about this later on
 #- refactor a few functions according to execution time
 #- complete main __init__ functions - bundle this with testing
@@ -17,7 +19,7 @@ import argparse
 #- add docstrings to functions
 #- add tests for functions - bundle this with refactoring
 #- add SSH tunneling between proxies
-#- check if recv_http and connect_http functions are a must
+
 
 class reise(object):
 
@@ -25,18 +27,10 @@ class reise(object):
     class tcpProxy(object):
 
         def __init__(self, local='127.0.0.1:8088', target=None, threads=6, l4='http'):
-            # try:
-            #     _verify_target_input(target)
-            # except ValueError:
-            #     exit()
-            # except IndexError:
-            #     exit()
             self._threads = threads
             self._l4 = l4
             self._tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            ##local and IP should be checked by verify_target_input and remain a tuple.
 
-            #gets local IP by getfqdn, might be buggy though, giving IP of wrong interface
             ##double check this section later
             self._tcp.bind(self.verify_target_input(local))
 
@@ -71,10 +65,6 @@ class reise(object):
 
             return ('.'.join(str(i) for i in outbound_ip), port)
 
-
-
-
-
             
         #Doesn't work, just a place-holder
         def start(self):
@@ -96,13 +86,16 @@ class reise(object):
             self.TIMEOUT = 2
             self.target = target
             self.l4 = l4
+
+            ##THIS VARIABLE MUST BE USER SET IN THE FUTURE.
+            self.recv = 'raw'
             self.pool = clientPool
             threading.Thread.__init__(self)
 
         def run(self):
-            # self.SIZE = size
-            # self.TIMEOUT = 2
-            connection = {'tcp': self.connect_tcp, 'udp': self.connect_udp, 'http': self.connect_http}
+            connection = {'tcp': self.connect_tcp, 'udp': self.connect_udp, 'http': self.connect_http,
+                            'raw': self.connect_raw}
+            receive = {'raw': self.recv_raw, 'tcp': self.recv_data, 'udp': self.recv_udp, 'http': self.recv_raw}
 
             while 1:
                 #refactor the next 9 lines of code later
@@ -113,18 +106,22 @@ class reise(object):
                 except Queue.Empty:
                     print 'EMPTY EMPTY'
                     break
-                if item == None:
+                if item is None:
                     print 'NONE'
                     break
                 msg, addr = item
-                buffer = msg.recv(8192)   
+                buffer = receive[self.recv](msg)  
                 print 'Buffer length: %d' % len(buffer)
-                data = connection[self.l4](buffer, self.target)            
+                soket, what = connection[self.l4](buffer, self.target)   
+                data = receive[what](soket)  
+                soket.close()  
+                print 'Recieve length: %d' % len(data)    
                 print 'got reply, closing socket, sending back to localhost'
                 # print data
-                msg.sendall(data)
+                # msg.sendall(data)
+                soket, what = connection[self.recv](data, None, msg)
                 print 'sent'
-                msg.close()
+                soket.close()
 
         def getIP(self, buffer):
             ##have to do good unit testin and refactoring on this function
@@ -175,16 +172,16 @@ class reise(object):
             #returns a string compromised of fragments with the headers removed
             return ''.join([i[6:] for i in data])
 
-        def recv_http(self, out):
+        def recv_raw(self, out):
             out.setblocking(0)
             data = []
             recv = ''
 
             start = time.time()
             while 1:
-                if data and time.time() - start > self.TIMEOUT:
+                if data and time.time() - start > self.TIMEOUT*2:
                     break
-                elif time.time() - start > self.TIMEOUT*2:
+                elif time.time() - start > self.TIMEOUT*4:
                     break
                 try:
                     recv = out.recv(8192)
@@ -192,7 +189,7 @@ class reise(object):
                         data.append(recv)
                         start = time.time()
                     else:
-                        tmie.sleep(0.1)
+                        time.sleep(0.1)
                 except:
                     pass
             return ''.join(data)
@@ -219,20 +216,28 @@ class reise(object):
                 except:
                     pass
             data.sort()
+
             #returns a string compromised of fragments with the headers removed
             return ''.join([i[6:] for i in data])
 
-        def connect_tcp(self, data, ip_port):
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            #make port mutable
-            s.connect(ip_port)
-            #USES FRAGMENTING FUNCTION, DOUBLE CHECK THIS LATER / SAME FOR CONNECT_UDP
 
-            for i in fragment_and_sequence(data):
+        def connect_raw(self, data, ip_port, s = None):
+            if s is None:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.connect(ip_port)
+            s.sendall(data)
+            return s, 'raw'
+
+
+        def connect_tcp(self, data, ip_port, s = None):
+            if s is None:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.connect(ip_port)
+            #USES FRAGMENTING FUNCTION, DOUBLE CHECK THIS LATER / SAME FOR CONNECT_UDP
+            for i in self.fragment_and_sequence(data):
                 s.sendall(i)
-            data = self.recv_data(s)
-            s.close()
-            return data
+
+            return s, 'tcp'
 
         def connect_udp(self, data, ip_port):
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -248,9 +253,9 @@ class reise(object):
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.connect((self.getIP(data), 80))
             s.sendall(data)
-            data = self.recv_http(s)
-            s.close()
-            return data
+            # data = self.recv_http(s)
+            # s.close()
+            return s, 'http'
 
         def fragment_and_sequence(self, pack):
             '''
