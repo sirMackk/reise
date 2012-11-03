@@ -88,14 +88,13 @@ class reise(object):
             self.l4 = l4
 
             ##THIS VARIABLE MUST BE USER SET IN THE FUTURE.
-            self.recv = 'raw'
+            self.recv = 'tcp'
             self.pool = clientPool
             threading.Thread.__init__(self)
 
         def run(self):
-            connection = {'tcp': self.connect_tcp, 'udp': self.connect_udp, 'http': self.connect_http,
-                            'raw': self.connect_raw}
-            receive = {'raw': self.recv_raw, 'tcp': self.recv_data, 'udp': self.recv_udp, 'http': self.recv_raw}
+            connection = {'tcp': self.connect_tcp, 'udp': self.connect_udp, 'http': self.connect_http}
+            receive = {'tcp': self.recv_data, 'udp': self.recv_udp, 'http': self.recv_data}
 
             while 1:
                 #refactor the next 9 lines of code later
@@ -110,16 +109,19 @@ class reise(object):
                     print 'NONE'
                     break
                 msg, addr = item
-                buffer = receive[self.recv](msg)  
+                buffer = receive[self.recv](msg, 1)  
                 print 'Buffer length: %d' % len(buffer)
-                soket, what = connection[self.l4](buffer, self.target)   
-                data = receive[what](soket)  
-                soket.close()  
-                print 'Recieve length: %d' % len(data)    
+                soket = connection[self.l4](buffer, self.target)  
+                #optimised function for intraproxy communication
+                self.recv_tcp(soket, 1, msg)
+
+                # data = receive[self.l4](soket, self.TIMEOUT)  
+                # soket.close()  
+                # print 'Recieve length: %d' % len(data)    
                 print 'got reply, closing socket, sending back to localhost'
                 # print data
                 # msg.sendall(data)
-                soket, what = connection[self.recv](data, None, msg)
+                # soket = connection[self.recv](data, None, msg)
                 print 'sent'
                 soket.close()
 
@@ -141,7 +143,37 @@ class reise(object):
             #I had a big issues with this earlier because I assumed that recv
             #recieves all the tcp packets on a connection. This is not true, recv
             #works similiarly to send. This function is to recv what sendall is to send.
-        def recv_data(self, out):
+
+        def recv_tcp(self, out, t, inn):
+            '''
+            This is a revised recv_data function that sends back data as soon as it gets it.
+            A lot of performance can be gained in this function.
+            '''
+            out.setblocking(0)
+
+            data = []
+            recv = ''
+
+            start = time.time()
+            while 1:
+                if data and time.time() - start > t * 2:
+                    break
+                elif time.time() - start > t * 4:
+                    break
+                try:
+                    recv = out.recv(8192)
+                    if recv:
+
+                        inn.sendall(recv)
+                        # data.append(recv)
+                        start = time.time()
+                    else:
+                        time.sleep(0.1)
+                except:
+                    pass
+            # return ''.join(data)
+            inn.close()
+        def recv_data(self, out, t):
             '''
             This function is responsible for receiving all the data through
             a TCP connection. The timeout values are in seconds.
@@ -155,33 +187,9 @@ class reise(object):
 
             start = time.time()
             while 1:
-                if data and time.time() - start > self.TIMEOUT:
+                if data and time.time() - start > t * 2:
                     break
-                elif time.time() - start > self.TIMEOUT*2:
-                    break
-                try:
-                    recv = out.recv(8192)
-                    if recv:
-                        data.append(recv)
-                        start = time.time()
-                    else:
-                        time.sleep(0.1)
-                except:
-                    pass
-            data.sort()
-            #returns a string compromised of fragments with the headers removed
-            return ''.join([i[6:] for i in data])
-
-        def recv_raw(self, out):
-            out.setblocking(0)
-            data = []
-            recv = ''
-
-            start = time.time()
-            while 1:
-                if data and time.time() - start > self.TIMEOUT*2:
-                    break
-                elif time.time() - start > self.TIMEOUT*4:
+                elif time.time() - start > t * 4:
                     break
                 try:
                     recv = out.recv(8192)
@@ -193,6 +201,7 @@ class reise(object):
                 except:
                     pass
             return ''.join(data)
+
 
         def recv_udp(self, udp):
             udp.setblocking(0)
@@ -233,11 +242,9 @@ class reise(object):
             if s is None:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.connect(ip_port)
-            #USES FRAGMENTING FUNCTION, DOUBLE CHECK THIS LATER / SAME FOR CONNECT_UDP
-            for i in self.fragment_and_sequence(data):
-                s.sendall(i)
+            s.sendall(data)
 
-            return s, 'tcp'
+            return s
 
         def connect_udp(self, data, ip_port):
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -255,7 +262,7 @@ class reise(object):
             s.sendall(data)
             # data = self.recv_http(s)
             # s.close()
-            return s, 'http'
+            return s
 
         def fragment_and_sequence(self, pack):
             '''
