@@ -3,17 +3,15 @@
 
 import threading
 import socket
-import Queue
 import time
 from sys import argv, exit
 import argparse
 
 
 #TODO:
-#- PRIORITY - figure out correct timeouts for receiving data, it's
-#             a huge bottleneck bandwidth wise and it makes TCP RSTs.
+#- PRIORITY - clean up threading function and make it more flexible using those dictionaries
+#               taking into consideration the optimization steps you figured out today.
 #- finish CLI arguments - think about this later on
-#- refactor a few functions according to execution time
 #- complete main __init__ functions - bundle this with testing
 #- add udpProxy based on tcpProxy
 #- add docstrings to functions
@@ -29,13 +27,10 @@ class reise(object):
         def __init__(self, local='127.0.0.1:8088', target=None, threads=6, l4='http'):
             self._threads = threads
             self._l4 = l4
+            #creates receiving socket on local machine
             self._tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-            ##double check this section later
             self._tcp.bind(self.verify_target_input(local))
-
             self._target = self.verify_target_input(target)
-
 
         def verify_target_input(self, target):
             '''
@@ -65,65 +60,46 @@ class reise(object):
 
             return ('.'.join(str(i) for i in outbound_ip), port)
 
-            
-        #Doesn't work, just a place-holder
         def start(self):
             self._tcp.listen(10)
-            clientPool = Queue.Queue()
-            for i in xrange(self._threads):
-                reise.ClientThread(self._l4, self._target, clientPool).start()
-            while 1:
-                clientPool.put(self._tcp.accept())
 
-            self._tcp.close()
+            while 1:
+                reise.ClientThread(self._l4, self._target, self._tcp.accept()).start()
+
+            #DETERMINE WHERE _TCP MUST BE CLOSED?
+            # self._tcp.close()
 
     #ClientThread class subclasses threading.Thread class
     class ClientThread(threading.Thread):
         #this class is the actual receiving and sending interface to work with.
-        def __init__(self, l4, target, clientPool):
+        def __init__(self, l4, target, sokit):
             #size temporary
             self.SIZE = 506
             self.TIMEOUT = 2
             self.target = target
             self.l4 = l4
-
+            self.sokit = sokit
             ##THIS VARIABLE MUST BE USER SET IN THE FUTURE.
             self.recv = 'tcp'
-            self.pool = clientPool
+            
             threading.Thread.__init__(self)
 
         def run(self):
             connection = {'tcp': self.connect_tcp, 'udp': self.connect_udp, 'http': self.connect_http}
             receive = {'tcp': self.recv_data, 'udp': self.recv_udp, 'http': self.recv_data}
 
-            while 1:
-                #refactor the next 9 lines of code later
-                print '[starting thread]'
-                try:
-                    item = self.pool.get()
-                    #item = clientPool.get(True, 10)
-                except Queue.Empty:
-                    print 'EMPTY EMPTY'
-                    break
-                if item is None:
-                    print 'NONE'
-                    break
-                msg, addr = item
-                buffer = receive[self.recv](msg, 1)  
-                print 'Buffer length: %d' % len(buffer)
-                soket = connection[self.l4](buffer, self.target)  
-                #optimised function for intraproxy communication
-                self.recv_tcp(soket, 1, msg)
-
-                # data = receive[self.l4](soket, self.TIMEOUT)  
-                # soket.close()  
-                # print 'Recieve length: %d' % len(data)    
-                print 'got reply, closing socket, sending back to localhost'
-                # print data
-                # msg.sendall(data)
-                # soket = connection[self.recv](data, None, msg)
-                print 'sent'
-                soket.close()
+            print '[starting thread]' 
+            msg, addr = self.sokit
+            buffer = msg.recv(4096)
+            print 'Buffer length: %d' % len(buffer)
+            soket = connection[self.l4](buffer, self.target)  
+            #optimised function for intraproxy communication
+            self.recv_tcp(soket, 1, msg) 
+            # print 'Recieve length: %d' % len(data)    
+            print 'got reply, closing socket, sending back to localhost'
+            # soket = connection[self.recv](data, None, msg)
+            print 'sent,\n CLOSING THREAD'
+            soket.close()
 
         def getIP(self, buffer):
             ##have to do good unit testin and refactoring on this function
@@ -139,11 +115,6 @@ class reise(object):
             print host + ' ' + host_ip
             return host_ip
 
-            #This function is responsible for recieving ALL the data packets.
-            #I had a big issues with this earlier because I assumed that recv
-            #recieves all the tcp packets on a connection. This is not true, recv
-            #works similiarly to send. This function is to recv what sendall is to send.
-
         def recv_tcp(self, out, t, inn):
             '''
             This is a revised recv_data function that sends back data as soon as it gets it.
@@ -158,7 +129,7 @@ class reise(object):
             while 1:
                 if data and time.time() - start > t * 2:
                     break
-                elif time.time() - start > t * 4:
+                elif time.time() - start > t * 3:
                     break
                 try:
                     recv = out.recv(8192)
@@ -173,35 +144,6 @@ class reise(object):
                     pass
             # return ''.join(data)
             inn.close()
-        def recv_data(self, out, t):
-            '''
-            This function is responsible for receiving all the data through
-            a TCP connection. The timeout values are in seconds.
-            The function also sorts the packets and removes the 6 byte header from
-            them.
-            '''
-            out.setblocking(0)
-
-            data = []
-            recv = ''
-
-            start = time.time()
-            while 1:
-                if data and time.time() - start > t * 2:
-                    break
-                elif time.time() - start > t * 4:
-                    break
-                try:
-                    recv = out.recv(8192)
-                    if recv:
-                        data.append(recv)
-                        start = time.time()
-                    else:
-                        time.sleep(0.1)
-                except:
-                    pass
-            return ''.join(data)
-
 
         def recv_udp(self, udp):
             udp.setblocking(0)
@@ -228,15 +170,6 @@ class reise(object):
 
             #returns a string compromised of fragments with the headers removed
             return ''.join([i[6:] for i in data])
-
-
-        def connect_raw(self, data, ip_port, s = None):
-            if s is None:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.connect(ip_port)
-            s.sendall(data)
-            return s, 'raw'
-
 
         def connect_tcp(self, data, ip_port, s = None):
             if s is None:
@@ -276,7 +209,6 @@ class reise(object):
             ##though would be needed. That's 3 bytes saved per packet.
             max = len(pack)/self.SIZE+1
             return ['%03d%03d%s' % ((i/self.SIZE)+1, max, pack[(0+i):(self.SIZE+i)]) for i in [j*self.SIZE for j in xrange(0, max)]]
-
 
 #scaffolding
 if __name__ == '__main__':
