@@ -1,6 +1,3 @@
-#threading proxy using Queue
-#early stage
-
 import threading
 import socket
 import time
@@ -78,26 +75,26 @@ class reise(object):
             self.TIMEOUT = 2
             self.target = target
             self.l4 = l4
-            self.sokit = sokit
-            ##THIS VARIABLE MUST BE USER SET IN THE FUTURE.
-            self.recv = 'tcp'
-            
+            self.sokit = sokit           
             threading.Thread.__init__(self)
 
         def run(self):
             connection = {'tcp': self.connect_tcp, 'udp': self.connect_udp, 'http': self.connect_http}
-            receive = {'tcp': self.recv_data, 'udp': self.recv_udp, 'http': self.recv_data}
+            receive = {'tcp': self.recv_tcp, 'http': self.recv_tcp, 'udp': self.recv_udp)
 
             print '[starting thread]' 
+            #Think about encapsulating the following code
+            #in a function called from a hashmap. This would allow
+            #the clienthread to be used by udpProxy, which only needs
+            #a modified way of getting a local connection.
             msg, addr = self.sokit
             buffer = msg.recv(4096)
             print 'Buffer length: %d' % len(buffer)
             soket = connection[self.l4](buffer, self.target)  
             #optimised function for intraproxy communication
-            self.recv_tcp(soket, 1, msg) 
-            # print 'Recieve length: %d' % len(data)    
+            receive[self.l4](soket, self.TIMEOUT-1, msg)            
+            #self.recv_tcp(soket, 1, msg)     
             print 'got reply, closing socket, sending back to localhost'
-            # soket = connection[self.recv](data, None, msg)
             print 'sent,\n CLOSING THREAD'
             soket.close()
 
@@ -115,16 +112,11 @@ class reise(object):
             print host + ' ' + host_ip
             return host_ip
 
-        def recv_tcp(self, out, t, inn):
+        def recv_tcp(self, out, t, local):
             '''
             This is a revised recv_data function that sends back data as soon as it gets it.
-            A lot of performance can be gained in this function.
             '''
             out.setblocking(0)
-
-            data = []
-            recv = ''
-
             start = time.time()
             while 1:
                 if data and time.time() - start > t * 2:
@@ -135,26 +127,24 @@ class reise(object):
                     recv = out.recv(8192)
                     if recv:
 
-                        inn.sendall(recv)
-                        # data.append(recv)
+                        local.sendall(recv)
                         start = time.time()
                     else:
                         time.sleep(0.1)
                 except:
                     pass
-            # return ''.join(data)
-            inn.close()
+            local.close()
 
-        def recv_udp(self, udp):
+        def recv_udp(self, udp, t, local):
             udp.setblocking(0)
             data = []
             recv = ''
             start = time.time()
 
             while 1:
-                if data and time.time() - start > self.TIMEOUT:
+                if data and time.time() - start > t:
                     break
-                elif time.time() - start > self.TIMEOUT*2:
+                elif time.time() - start > t * 2:
                     break
                 try:
                     recv, addr = udp.recvfrom(2048)
@@ -167,9 +157,9 @@ class reise(object):
                 except:
                     pass
             data.sort()
-
-            #returns a string compromised of fragments with the headers removed
-            return ''.join([i[6:] for i in data])
+            #sends back the received and defragmented message
+            local.sendall(''.join([i[6:] for i in data]))
+            local.close()
 
         def connect_tcp(self, data, ip_port, s = None):
             if s is None:
@@ -181,13 +171,11 @@ class reise(object):
 
         def connect_udp(self, data, ip_port):
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            #make port mutable
-            #this is the part that decides which spoofing protocol to use
-            #or to send raw data. The protocol should also be able to
-            #fragment and sequence packets just in case size differs.
+
             for i in fragment_and_sequence(data):
                 s.sendto(i, ip_port)
-            return self.recv_udp(s)
+            
+            return s
 
         def connect_http(self, data, ip_port=None):
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
