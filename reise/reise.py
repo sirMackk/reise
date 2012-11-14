@@ -9,11 +9,9 @@ import argparse
 #- PRIORITY - clean up threading function and make it more flexible using those dictionaries
 #               taking into consideration the optimization steps you figured out today.
 #- finish CLI arguments - think about this later on
-#- complete main __init__ functions - bundle this with testing
-#- add udpProxy based on tcpProxy
 #- add docstrings to functions
 #- add tests for functions - bundle this with refactoring
-#- add SSH tunneling between proxies
+
 
 
 class reise(object):
@@ -21,8 +19,7 @@ class reise(object):
 
     class tcpProxy(object):
 
-        def __init__(self, local='127.0.0.1:8088', target=None, threads=6, l4='http'):
-            self._threads = threads
+        def __init__(self, local='127.0.0.1:8088', target=None, l4='http'):
             self._l4 = l4
             #creates receiving socket on local machine
             self._tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -61,34 +58,69 @@ class reise(object):
             self._tcp.listen(10)
 
             while 1:
-                reise.ClientThread(self._l4, self._target, self._tcp.accept()).start()
+                reise.ClientThread(self._l4, self._target, self._tcp.accept(), 'tcp').start()
 
             #DETERMINE WHERE _TCP MUST BE CLOSED?
             # self._tcp.close()
 
+    class udpProxy(tcpProxy):
+
+        def __init__(self, local='127.0.0.1:8089', target=None, l4='http'):
+            self._l4 = l4
+            self._udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self._udp.bind(self.verify_target_input(local))
+            self._target = self.verify_target_input(target)
+
+        def start(self):
+
+
+            while 1:
+                reise.ClientThread(self._l4, self._target, self._udp, 'udp').start()
+
+
+
     #ClientThread class subclasses threading.Thread class
     class ClientThread(threading.Thread):
         #this class is the actual receiving and sending interface to work with.
-        def __init__(self, l4, target, sokit):
+        def __init__(self, l4, target, sokit, loc):
             #size temporary
             self.SIZE = 506
             self.TIMEOUT = 2
             self.target = target
             self.l4 = l4
-            self.sokit = sokit           
+            self.sokit = sokit  
+            self.loc = loc         
             threading.Thread.__init__(self)
+
+        #These functions could be improved probably
+        def get_tcp(self, sok):
+            msg, addr = sok
+            return msg.recv(4096), msg
+        #This function creates a problem:
+        #It doesn't create a socket which can be used to reply to a host
+        #so it is required to work around this problem either in this function
+        #(preferable) or in ClientThread.run.
+        def get_udp(self, sok):
+            msg, addr = sok
+            return msg.recvfrom(4096), msg
+
 
         def run(self):
             connection = {'tcp': self.connect_tcp, 'udp': self.connect_udp, 'http': self.connect_http}
-            receive = {'tcp': self.recv_tcp, 'http': self.recv_tcp, 'udp': self.recv_udp)
+            receive = {'tcp': self.recv_tcp, 'http': self.recv_tcp, 'udp': self.recv_udp}
+            local_recv = {'tcp': self.get_tcp, 'udp': self.get_udp}
 
             print '[starting thread]' 
             #Think about encapsulating the following code
             #in a function called from a hashmap. This would allow
             #the clienthread to be used by udpProxy, which only needs
             #a modified way of getting a local connection.
-            msg, addr = self.sokit
-            buffer = msg.recv(4096)
+
+            # msg, addr = self.sokit
+            # buffer = msg.recv(4096)
+
+            buffer, msg = local_recv[self.loc](self.sokit)
+
             print 'Buffer length: %d' % len(buffer)
             soket = connection[self.l4](buffer, self.target)  
             #optimised function for intraproxy communication
@@ -97,6 +129,7 @@ class reise(object):
             print 'got reply, closing socket, sending back to localhost'
             print 'sent,\n CLOSING THREAD'
             soket.close()
+            print '[closing thread]'
 
         def getIP(self, buffer):
             ##have to do good unit testin and refactoring on this function
@@ -118,6 +151,7 @@ class reise(object):
             '''
             out.setblocking(0)
             start = time.time()
+            data = False
             while 1:
                 if data and time.time() - start > t * 2:
                     break
@@ -129,6 +163,7 @@ class reise(object):
 
                         local.sendall(recv)
                         start = time.time()
+                        data = True
                     else:
                         time.sleep(0.1)
                 except:
