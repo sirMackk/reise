@@ -64,6 +64,9 @@ class reise(object):
             #DETERMINE WHERE _TCP MUST BE CLOSED?
             # self._tcp.close()
 
+
+
+
     class udpProxy(tcpProxy):
 
         def __init__(self, local='127.0.0.1:8089', target=None, l4='http'):
@@ -77,7 +80,8 @@ class reise(object):
 
             while 1:
                 #reise.ClientThread(self._l4, self._target, self._udp, 'udp').start()
-                reise.udpThread(self._l4, self._target, self._udp).start()
+
+                reise.udpThread(self._l4, self._target, self._udp.recvfrom(4096)).start()
 
 
 
@@ -116,16 +120,18 @@ class reise(object):
             local_recv = {'tcp': self.get_tcp, 'udp': self.recv_udp}
 
             print '[starting thread]' 
-            # msg, addr = self.sokit
-            # buffer = msg.recv(4096)
+            msg, addr = self.sokit
+            buffer = msg.recv(4096)
 
             #Change this back to TCP only mode
-            buffer, msg = local_recv[self.loc](self.sokit)
+            # buffer, msg = local_recv[self.loc](self.sokit)
 
             print 'Buffer length: %d' % len(buffer)
             soket = connection[self.l4](buffer, self.target)  
             #optimised function for intraproxy communication
-            receive[self.l4](soket, self.TIMEOUT-1, msg)            
+            recv = receive[self.l4](soket, self.TIMEOUT-1, msg)  
+            connection[self.l4](recv, addr)
+            msg.close()          
             #self.recv_tcp(soket, 1, msg)     
             print 'got reply, closing socket, sending back to localhost'
             print 'sent,\n CLOSING THREAD'
@@ -173,8 +179,9 @@ class reise(object):
                 except:
                     pass
             local.close()
+            return None
 
-        def recv_udp(self, udp, t):
+        def recv_udp(self, udp, t, local=None):
             udp.setblocking(0)
             data = []
             recv = ''
@@ -196,7 +203,10 @@ class reise(object):
                 except:
                     pass
             data.sort()
-            return data, addr
+            data = ''.join([i[:6] for i in data])
+            # local.sendall(''.join([i[6:] for i in data]))
+            # local.close()
+            return data
 
         def connect_tcp(self, data, ip_port, s = None):
             if s is None:
@@ -209,7 +219,7 @@ class reise(object):
         def connect_udp(self, data, ip_port):
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             #not all udp traffic should be segmented
-            for i in fragment_and_sequence(data):
+            for i in self.fragment_and_sequence(data):
                 s.sendto(i, ip_port)
             
             return s
@@ -236,25 +246,37 @@ class reise(object):
             return ['%03d%03d%s' % ((i/self.SIZE)+1, max, pack[(0+i):(self.SIZE+i)]) for i in [j*self.SIZE for j in xrange(0, max)]]
    
     class udpThread(ClientThread):
+
+        def __init__(self, l4, target, sokit, loc=None):
+            #size temporary
+            self.SIZE = 506
+            self.TIMEOUT = 2
+            self.target = target
+            self.l4 = l4
+            self.recved = sokit  
+            self.loc = loc         
+            threading.Thread.__init__(self)
         
         def run(self):
             connection = {'tcp': self.connect_tcp, 'udp': self.connect_udp, 'http': self.connect_http}
             receive = {'tcp': self.recv_tcp, 'http': self.recv_tcp, 'udp': self.recv_udp}
             print '[starting thread]'
             
-            #incoming traffic
-            #choice between segmented and unsegmented traffic using a dict
-            #idea: this has to use segmentation, by default, allow for non-segmented traffic
-            buffer, addr = receive['udp'](self.sokit, 2)
-         
+#incoming traffic is the problem because it is fragmented and a thread is created for each fragment
+#not good, already working on the solution.
+            
+            # buffer, addr = receive['udp'](self.sokit, 2)
+            buffer, addr = self.recved
             #send traffic further along the way
             #choice of which way to further traffic, also using a dict
             print 'Buffer length: %d' % len(buffer)
+            print 'BUFFER: %s' % buffer
             soket = connection[self.l4](buffer, self.target)  
 
             #receive reply and pass it back to previous node
-            #idea: combine sockets from incoming and outgoing interfaces
-            receive[self.l4](soket, self.TIMEOUT-1, addr)            
+            recv = receive[self.l4](soket, self.TIMEOUT-1, addr)
+            print recv
+            # connection[self.l4](recv, addr)
             #self.recv_tcp(soket, 1, msg)     
             print 'got reply, closing socket, sending back to localhost'
             print 'sent,\n CLOSING THREAD'
@@ -270,7 +292,7 @@ class reise(object):
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             out.setblocking(0)
             start = time.time()
-            data = False
+            data = []
             while 1:
                 if data and time.time() - start > t * 2:
                     break
@@ -283,14 +305,16 @@ class reise(object):
                         #s.sendto(recv, addr)
                         data.append(recv)
                         start = time.time()
-                        data = True
+                 
                     else:
                         time.sleep(0.1)
                 except:
                     pass
-            #sends it back to host after getting it all and sequencing it       
-            s.sendto(fragment_and_sequence(data), addr)
+            #sends it back to host after getting it all and sequencing it     
+            print data  
+            s.sendto(''.join(self.fragment_and_sequence(data)), addr)
             s.close()
+            out.close()
             
             
 
