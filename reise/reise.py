@@ -11,6 +11,7 @@ import argparse
 #- finish CLI arguments - think about this later on
 #- add docstrings to functions
 #- add tests for functions - bundle this with refactoring
+#- packet size must be user settable
 
 
 
@@ -58,7 +59,7 @@ class reise(object):
             self._tcp.listen(10)
 
             while 1:
-                reise.ClientThread(self._l4, self._target, self._tcp.accept(), 'tcp').start()
+                reise.ClientThread(self._l4, self._target, self._tcp.accept()).start()
 
             #DETERMINE WHERE _TCP MUST BE CLOSED?
             # self._tcp.close()
@@ -75,14 +76,15 @@ class reise(object):
 
 
             while 1:
-                reise.ClientThread(self._l4, self._target, self._udp, 'udp').start()
+                #reise.ClientThread(self._l4, self._target, self._udp, 'udp').start()
+                reise.udpThread(self._l4, self._target, self._udp).start()
 
 
 
     #ClientThread class subclasses threading.Thread class
     class ClientThread(threading.Thread):
         #this class is the actual receiving and sending interface to work with.
-        def __init__(self, l4, target, sokit, loc):
+        def __init__(self, l4, target, sokit, loc=None):
             #size temporary
             self.SIZE = 506
             self.TIMEOUT = 2
@@ -96,10 +98,12 @@ class reise(object):
         def get_tcp(self, sok):
             msg, addr = sok
             return msg.recv(4096), msg
+
         #This function creates a problem:
         #It doesn't create a socket which can be used to reply to a host
         #so it is required to work around this problem either in this function
         #(preferable) or in ClientThread.run.
+        
         def get_udp(self, sok):
             msg, addr = sok
             return msg.recvfrom(4096), msg
@@ -108,17 +112,14 @@ class reise(object):
         def run(self):
             connection = {'tcp': self.connect_tcp, 'udp': self.connect_udp, 'http': self.connect_http}
             receive = {'tcp': self.recv_tcp, 'http': self.recv_tcp, 'udp': self.recv_udp}
-            local_recv = {'tcp': self.get_tcp, 'udp': self.get_udp}
+            #experimental way of receiving udp traffic, has some drawbacks like sockets
+            local_recv = {'tcp': self.get_tcp, 'udp': self.recv_udp}
 
             print '[starting thread]' 
-            #Think about encapsulating the following code
-            #in a function called from a hashmap. This would allow
-            #the clienthread to be used by udpProxy, which only needs
-            #a modified way of getting a local connection.
-
             # msg, addr = self.sokit
             # buffer = msg.recv(4096)
 
+            #Change this back to TCP only mode
             buffer, msg = local_recv[self.loc](self.sokit)
 
             print 'Buffer length: %d' % len(buffer)
@@ -130,6 +131,9 @@ class reise(object):
             print 'sent,\n CLOSING THREAD'
             soket.close()
             print '[closing thread]'
+            
+            
+            
 
         def getIP(self, buffer):
             ##have to do good unit testin and refactoring on this function
@@ -170,7 +174,7 @@ class reise(object):
                     pass
             local.close()
 
-        def recv_udp(self, udp, t, local):
+        def recv_udp(self, udp, t):
             udp.setblocking(0)
             data = []
             recv = ''
@@ -192,9 +196,7 @@ class reise(object):
                 except:
                     pass
             data.sort()
-            #sends back the received and defragmented message
-            local.sendall(''.join([i[6:] for i in data]))
-            local.close()
+            return data, addr
 
         def connect_tcp(self, data, ip_port, s = None):
             if s is None:
@@ -206,7 +208,7 @@ class reise(object):
 
         def connect_udp(self, data, ip_port):
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
+            #not all udp traffic should be segmented
             for i in fragment_and_sequence(data):
                 s.sendto(i, ip_port)
             
@@ -232,6 +234,65 @@ class reise(object):
             ##though would be needed. That's 3 bytes saved per packet.
             max = len(pack)/self.SIZE+1
             return ['%03d%03d%s' % ((i/self.SIZE)+1, max, pack[(0+i):(self.SIZE+i)]) for i in [j*self.SIZE for j in xrange(0, max)]]
+   
+    class udpThread(ClientThread):
+        
+        def run(self):
+            connection = {'tcp': self.connect_tcp, 'udp': self.connect_udp, 'http': self.connect_http}
+            receive = {'tcp': self.recv_tcp, 'http': self.recv_tcp, 'udp': self.recv_udp}
+            print '[starting thread]'
+            
+            #incoming traffic
+            #choice between segmented and unsegmented traffic using a dict
+            #idea: this has to use segmentation, by default, allow for non-segmented traffic
+            buffer, addr = receive['udp'](self.sokit, 2)
+         
+            #send traffic further along the way
+            #choice of which way to further traffic, also using a dict
+            print 'Buffer length: %d' % len(buffer)
+            soket = connection[self.l4](buffer, self.target)  
+
+            #receive reply and pass it back to previous node
+            #idea: combine sockets from incoming and outgoing interfaces
+            receive[self.l4](soket, self.TIMEOUT-1, addr)            
+            #self.recv_tcp(soket, 1, msg)     
+            print 'got reply, closing socket, sending back to localhost'
+            print 'sent,\n CLOSING THREAD'
+            soket.close()
+            print '[closing thread]'
+
+        #needs a different tcp outbound interface in order for higher efficiency
+        #recv_udp and the connection functions should be pretty much ok.
+        def recv_tcp(self, out, t, addr):
+            '''
+            This is a revised recv_data function that sends back data as soon as it gets it.
+            '''
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            out.setblocking(0)
+            start = time.time()
+            data = False
+            while 1:
+                if data and time.time() - start > t * 2:
+                    break
+                elif time.time() - start > t * 3:
+                    break
+                try:
+                    recv = out.recv(8192)
+                    if recv:
+                        #gets all the tcp data
+                        #s.sendto(recv, addr)
+                        data.append(recv)
+                        start = time.time()
+                        data = True
+                    else:
+                        time.sleep(0.1)
+                except:
+                    pass
+            #sends it back to host after getting it all and sequencing it       
+            s.sendto(fragment_and_sequence(data), addr)
+            s.close()
+            
+            
 
 #scaffolding
 if __name__ == '__main__':
