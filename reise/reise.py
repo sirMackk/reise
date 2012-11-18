@@ -6,7 +6,7 @@ import argparse
 
 
 #TODO:
-#- PRIORITY - FIgure out why recv_udp doesn't work at all
+#- performance tweaks - tcpProxy fetches test page in about 7 seconds, udpProxy - 35 seconds
 #- finish CLI arguments - think about this later on
 #- add docstrings to functions
 #- add tests for functions - bundle this with refactoring
@@ -111,11 +111,7 @@ class reise(object):
             print 'Buffer length: %d' % len(buffer)
             soket = connection[self.l4](buffer, self.target)  
             recv = receive[self.l4](soket, self.TIMEOUT-1, msg)  
-            #send back to local
-            msg.sendall(recv)
-           # connection[self.l4](recv, addr)
-            msg.close()          
-            #self.recv_tcp(soket, 1, msg)     
+            msg.close()               
             print 'got reply, closing socket, sending back to localhost'
             print 'sent,\n CLOSING THREAD'
             soket.close()
@@ -162,11 +158,11 @@ class reise(object):
             return None
 
         def recv_udp(self, udp, t, local=None):
-            #udp.setblocking(0)
-            data = []
-            recv = ''
-            start = time.time()
 
+            data = False
+            start = time.time()
+            #timeout on the socket bypasses the non-blocking problem
+            udp.settimeout(t*5)
             while 1:
                 if data and time.time() - start > t:
                     break
@@ -175,21 +171,18 @@ class reise(object):
                 try:
                     recv, addr = udp.recvfrom(2048)
                     if recv:
-                        #print recv
-                        data.append(recv)
+                        local.sendall(recv[6:])
+                        data = True
                         start = time.time()
                     else:
                         time.sleep(0.1)
-                except socket.error, (value, message):
-                    print value, '=== ', message
-                    #using udp.setblock(0) causes error 10035, not using it causes
-                    #some interesting behaviour such as audio signals and it generally 
-                    #doesn't really work
+                        print 'sleeping'
+                except:
+                    #refactor this and other exceptions to provide 
+                    #meaningful debugging information.
                     pass
-            data.sort()
-            data = ''.join([i[:6] for i in data])
             udp.close()
-            return data
+            return None
 
         def connect_tcp(self, data, ip_port, s = None):
             if s is None:
@@ -285,6 +278,8 @@ class reise(object):
                     pass
             print addr
             print len(data)
+            #performance can be gained here by sending out udp chunks
+            #without waiting, just quick fragmentation.
             for i in self.fragment_and_sequence(''.join(data)):
                 self.loc.sendto(i, addr)
 
