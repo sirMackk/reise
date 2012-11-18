@@ -6,13 +6,11 @@ import argparse
 
 
 #TODO:
-#- PRIORITY - clean up threading function and make it more flexible using those dictionaries
-#               taking into consideration the optimization steps you figured out today.
+#- PRIORITY - FIgure out why recv_udp doesn't work at all
 #- finish CLI arguments - think about this later on
 #- add docstrings to functions
 #- add tests for functions - bundle this with refactoring
 #- packet size must be user settable
-
 
 
 class reise(object):
@@ -76,18 +74,22 @@ class reise(object):
             self._target = self.verify_target_input(target)
 
         def start(self):
-
-
+            buffer = []
             while 1:
-                #reise.ClientThread(self._l4, self._target, self._udp, 'udp').start()
+               buffer.append(self._udp.recvfrom(4096))
+               packet = self.check(buffer)
+               if packet is not None:
+                    reise.udpThread(self._l4, self._target, (''.join([i[0][6:] for i in packet]), packet[0][1]), self._udp).start()
 
-                reise.udpThread(self._l4, self._target, self._udp.recvfrom(4096)).start()
+        def check(self, buffer):
+            for i in buffer:
+                packet = filter(lambda x: x[1] == i[1], buffer)
+                if len(packet) == int(i[0][3:6]):
+                    buffer[:] = (i for i in buffer if i not in packet)
+                    return packet
 
 
-
-    #ClientThread class subclasses threading.Thread class
     class ClientThread(threading.Thread):
-        #this class is the actual receiving and sending interface to work with.
         def __init__(self, l4, target, sokit, loc=None):
             #size temporary
             self.SIZE = 506
@@ -98,48 +100,26 @@ class reise(object):
             self.loc = loc         
             threading.Thread.__init__(self)
 
-        #These functions could be improved probably
-        def get_tcp(self, sok):
-            msg, addr = sok
-            return msg.recv(4096), msg
-
-        #This function creates a problem:
-        #It doesn't create a socket which can be used to reply to a host
-        #so it is required to work around this problem either in this function
-        #(preferable) or in ClientThread.run.
-        
-        def get_udp(self, sok):
-            msg, addr = sok
-            return msg.recvfrom(4096), msg
-
 
         def run(self):
             connection = {'tcp': self.connect_tcp, 'udp': self.connect_udp, 'http': self.connect_http}
             receive = {'tcp': self.recv_tcp, 'http': self.recv_tcp, 'udp': self.recv_udp}
-            #experimental way of receiving udp traffic, has some drawbacks like sockets
-            local_recv = {'tcp': self.get_tcp, 'udp': self.recv_udp}
 
             print '[starting thread]' 
             msg, addr = self.sokit
             buffer = msg.recv(4096)
-
-            #Change this back to TCP only mode
-            # buffer, msg = local_recv[self.loc](self.sokit)
-
             print 'Buffer length: %d' % len(buffer)
             soket = connection[self.l4](buffer, self.target)  
-            #optimised function for intraproxy communication
             recv = receive[self.l4](soket, self.TIMEOUT-1, msg)  
-            connection[self.l4](recv, addr)
+            #send back to local
+            msg.sendall(recv)
+           # connection[self.l4](recv, addr)
             msg.close()          
             #self.recv_tcp(soket, 1, msg)     
             print 'got reply, closing socket, sending back to localhost'
             print 'sent,\n CLOSING THREAD'
             soket.close()
-            print '[closing thread]'
-            
-            
-            
+            print '[closing thread]'      
 
         def getIP(self, buffer):
             ##have to do good unit testin and refactoring on this function
@@ -182,7 +162,7 @@ class reise(object):
             return None
 
         def recv_udp(self, udp, t, local=None):
-            udp.setblocking(0)
+            #udp.setblocking(0)
             data = []
             recv = ''
             start = time.time()
@@ -195,17 +175,20 @@ class reise(object):
                 try:
                     recv, addr = udp.recvfrom(2048)
                     if recv:
-                        print recv
+                        #print recv
                         data.append(recv)
                         start = time.time()
                     else:
                         time.sleep(0.1)
-                except:
+                except socket.error, (value, message):
+                    print value, '=== ', message
+                    #using udp.setblock(0) causes error 10035, not using it causes
+                    #some interesting behaviour such as audio signals and it generally 
+                    #doesn't really work
                     pass
             data.sort()
             data = ''.join([i[:6] for i in data])
-            # local.sendall(''.join([i[6:] for i in data]))
-            # local.close()
+            udp.close()
             return data
 
         def connect_tcp(self, data, ip_port, s = None):
@@ -239,21 +222,18 @@ class reise(object):
             Maximum number of sequenced packets is 999 for now. 
             It adds a 6 byte long string with in the format of frag_num|num_of_frags|fragment.
             '''
-            ##think about the second number, maybe packets dont need the extra info about
-            ##x out of y for their size, it's not used in sorting it anyway, as you previously
-            ##though would be needed. That's 3 bytes saved per packet.
             max = len(pack)/self.SIZE+1
             return ['%03d%03d%s' % ((i/self.SIZE)+1, max, pack[(0+i):(self.SIZE+i)]) for i in [j*self.SIZE for j in xrange(0, max)]]
    
     class udpThread(ClientThread):
 
-        def __init__(self, l4, target, sokit, loc=None):
+        def __init__(self, l4, target, packet, loc=None):
             #size temporary
             self.SIZE = 506
             self.TIMEOUT = 2
             self.target = target
             self.l4 = l4
-            self.recved = sokit  
+            self.recved = packet  
             self.loc = loc         
             threading.Thread.__init__(self)
         
@@ -261,14 +241,9 @@ class reise(object):
             connection = {'tcp': self.connect_tcp, 'udp': self.connect_udp, 'http': self.connect_http}
             receive = {'tcp': self.recv_tcp, 'http': self.recv_tcp, 'udp': self.recv_udp}
             print '[starting thread]'
-            
-#incoming traffic is the problem because it is fragmented and a thread is created for each fragment
-#not good, already working on the solution.
-            
-            # buffer, addr = receive['udp'](self.sokit, 2)
+
+            #following statement is a place-holder
             buffer, addr = self.recved
-            #send traffic further along the way
-            #choice of which way to further traffic, also using a dict
             print 'Buffer length: %d' % len(buffer)
             print 'BUFFER: %s' % buffer
             soket = connection[self.l4](buffer, self.target)  
@@ -283,13 +258,10 @@ class reise(object):
             soket.close()
             print '[closing thread]'
 
-        #needs a different tcp outbound interface in order for higher efficiency
-        #recv_udp and the connection functions should be pretty much ok.
         def recv_tcp(self, out, t, addr):
             '''
             This is a revised recv_data function that sends back data as soon as it gets it.
             '''
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             out.setblocking(0)
             start = time.time()
             data = []
@@ -299,10 +271,11 @@ class reise(object):
                 elif time.time() - start > t * 3:
                     break
                 try:
-                    recv = out.recv(8192)
+                    recv = out.recv(4096)
                     if recv:
                         #gets all the tcp data
                         #s.sendto(recv, addr)
+                        print recv
                         data.append(recv)
                         start = time.time()
                  
@@ -310,12 +283,12 @@ class reise(object):
                         time.sleep(0.1)
                 except:
                     pass
-            #sends it back to host after getting it all and sequencing it     
-            print data  
-            s.sendto(''.join(self.fragment_and_sequence(data)), addr)
-            s.close()
+            print addr
+            print len(data)
+            for i in self.fragment_and_sequence(''.join(data)):
+                self.loc.sendto(i, addr)
+
             out.close()
-            
             
 
 #scaffolding
