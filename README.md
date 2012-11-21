@@ -2,7 +2,7 @@
 
 ### What is all this about?
 
-While browsing the Internet, I stumbled upon a DNS tunneler. I never ran nor looked at the source code, but the idea stuck in my head as being pretty cool. Many months later it when I was teaching myself Python I got the idea that coding this idea would be a great exercise. I wasn't wrong - so far it has involved things like:
+While browsing the Internet, I stumbled upon a DNS tunneler. I never ran nor looked at the source code, but the idea stuck in my head as being pretty cool. Many months later when I was teaching myself Python I thought that coding this idea would be a great exercise. I wasn't wrong - so far it has involved awesome things like:
 
 1. Sockets
 2. Multithreading and queuing 
