@@ -16,11 +16,14 @@ class reise(object):
 
     class tcpProxy(object):
 
-        def __init__(self, local='127.0.0.1:8088', target=None, l4='http'):
-            self._l4 = l4
-            #creates receiving socket on local machine
-            self._tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self._tcp.bind(self.verify_target_input(local))
+        def __init__(self, local='127.0.0.1:8088', target=None, , size=506, l4='http'):
+            # self._l4 = l4
+            # self._size = size
+            try:
+                self._tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self._tcp.bind(self.verify_target_input(local))
+            except Exception, e:
+                print 'Error while creating local tcpProxy socket in thread: %s' % e
             self._target = self.verify_target_input(target)
 
         def verify_target_input(self, target):
@@ -55,14 +58,17 @@ class reise(object):
             self._tcp.listen(10)
 
             while 1:
-                reise.ClientThread(self._l4, self._target, self._tcp.accept()).start()
+                reise.ClientThread(l4, self._target, size, self._tcp.accept()).start()
 
     class udpProxy(tcpProxy):
 
-        def __init__(self, local='127.0.0.1:8089', target=None, l4='http'):
-            self._l4 = l4
-            self._udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            self._udp.bind(self.verify_target_input(local))
+        def __init__(self, local='127.0.0.1:8089', target=None, size=506,  l4='http'):
+            # self._l4 = l4
+            try:
+                self._udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                self._udp.bind(self.verify_target_input(local))
+            except Exception, e:
+                print 'Error while creating local udpProxy socket in thread: %s' % e
             self._target = self.verify_target_input(target)
 
         def start(self):
@@ -72,7 +78,7 @@ class reise(object):
                 buffer.append(self._udp.recvfrom(4096))
                 packet = self.check(buffer)
                 if packet is not None:
-                    reise.udpThread(self._l4, self._target, (''.join([i[0][6:] for i in packet]),
+                    reise.udpThread(l4, self._target, size, (''.join([i[0][6:] for i in packet]),
                                      packet[0][1]), self._udp).start()
                 if time.time() - start > 5:
                     try:
@@ -91,13 +97,13 @@ class reise(object):
 
 
     class ClientThread(threading.Thread):
-        def __init__(self, l4, target, sokit, loc=None):
+        def __init__(self, l4, target, sokit, local=None):
             self.SIZE = 506
             self.TIMEOUT = 2
             self.target = target
             self.l4 = l4
             self.sokit = sokit  
-            self.loc = loc         
+            self.loc = local         
             threading.Thread.__init__(self)
 
         def run(self):
@@ -233,22 +239,13 @@ class reise(object):
                 pack[(0+i):(self.SIZE+i)]) for i in [j*self.SIZE for j in xrange(0, max)]]
    
     class udpThread(ClientThread):
-
-        def __init__(self, l4, target, packet, loc=None):
-            self.SIZE = 506
-            self.TIMEOUT = 2
-            self.target = target
-            self.l4 = l4
-            self.recved = packet  
-            self.loc = loc         
-            threading.Thread.__init__(self)
         
         def run(self):
             connection = {'tcp': self.connect_tcp, 'udp': self.connect_udp, 'http': self.connect_http}
             receive = {'tcp': self.recv_tcp, 'http': self.recv_tcp, 'udp': self.recv_udp}
 
             print '[starting thread]'
-            buffer, addr = self.recved
+            buffer, addr = self.sokit
             print 'Buffer length: %d' % len(buffer)
             print 'BUFFER: %s' % buffer
             soket = connection[self.l4](buffer, self.target)  
