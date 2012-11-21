@@ -1,5 +1,6 @@
 from nose.tools import *
 from reise.reise import *
+import socket
 
 #New testing guide:
 #To test instance methods without having to instantiate a whole class use this:
@@ -40,6 +41,59 @@ def test_verify_target_input_bad_ip_length_port():
 def test_verify_target_input_bad_ip_whitespace():
     proxy = object.__new__(reise.tcpProxy)
     assert_equal(proxy.verify_target_input('192.5.0 .12:27'), ('192.5.0.12', 27))
+
+def test_getIP():
+    proxy = object.__new__(reise.ClientThread)
+    test_http_request = '''
+    GET http://pogoda.onet.pl/prognoza-pogody/dzis/europa,polska,lublin,9303.html HTTP/1.1
+
+Host: pogoda.onet.pl
+
+User-Agent: Mozilla/5.0 (Windows NT 6.1; WOW64; rv:16.0) Gecko/20100101 Firefox/16.0
+
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+
+Accept-Language: en-US,en;q=0.5
+
+Accept-Encoding: gzip, deflate
+'''
+    remote_host = socket.gethostbyname('www.pogoda.onet.pl')
+    assert_equal(proxy.getIP(test_http_request), remote_host)
+
+@raises(IndexError)
+def test_getIP_index_error():
+    proxy = object.__new__(reise.ClientThread)
+    test_http_request = '''
+     GET303.htmlHTTP/1.1'''
+    assert_equal(proxy.getIP(test_http_request), '0.0.0.0')
+
+
+
+#Trying to come up with a way to test out thread and socket based portions of code
+# def test_recv_tcp_tcp():
+#     remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+#     remote.bind(('127.0.0.1', 61337))
+
+#     local_test = socket.(socket.AF_INET, socket.SOCK_STREAM)
+#     local_test.bind(('127.0.0.1', 62337))
+
+#     local_test.listen(1)
+#     remote.listen(1)
+
+
+#     local_test.sendall('test packet string')
+#     reise.ClientThread('tcp', ('127.0.0.1', 62337) , 506, remote.accept()).start()
+
+
+
+
+
+
+#     out = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+#     local = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+
+
 
 
 def test_fragment_and_sequence():

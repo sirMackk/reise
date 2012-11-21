@@ -16,7 +16,7 @@ class reise(object):
 
     class tcpProxy(object):
 
-        def __init__(self, local='127.0.0.1:8088', target=None, , size=506, l4='http'):
+        def __init__(self, local='127.0.0.1:8088', target=None, size=506, l4='http'):
             # self._l4 = l4
             # self._size = size
             try:
@@ -51,7 +51,7 @@ class reise(object):
                         raise ValueError('IP too large or too small: %d' %i)
             else:
                 raise IndexError('IP too short or too long')
-
+            #returns tuple of (string, int)
             return ('.'.join(str(i) for i in outbound_ip), port)
 
         def start(self):
@@ -127,12 +127,11 @@ class reise(object):
             try:
                 host = buffer[:end].split()[1]      
             except IndexError:
-                print buffer
-                print end
-                exit()
+                print 'IndexError in getIP function, buffer state: ', buffer, end
+                raise IndexError
             end = host[7:].find('/')
             host_ip = socket.gethostbyname(host[7:(end+7)])
-            print host + ' ' + host_ip
+            print '%s %s' % (host, host_ip)
             return host_ip
 
         def recv_tcp(self, out, t, local):
