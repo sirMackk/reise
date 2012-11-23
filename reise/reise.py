@@ -5,11 +5,9 @@ from sys import argv, exit
 import argparse
 
 #TODO:
-#- performance tweaks - tcpProxy fetches test page in about 7 seconds, udpProxy - 35 seconds
-#- finish CLI arguments - think about this later on
+#- performance tweaks - tcpProxy fetches test page in about 7 seconds, udpProxy - 22 seconds
 #- add docstrings to functions
 #- add tests for functions - bundle this with refactoring
-#- packet size must be user settable
 
 
 class reise(object):
@@ -17,8 +15,8 @@ class reise(object):
     class tcpProxy(object):
 
         def __init__(self, local='127.0.0.1:8088', target=None, size=506, l4='http'):
-            # self._l4 = l4
-            # self._size = size
+            self._l4 = l4
+            self._size = int(size)
             try:
                 self._tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self._tcp.bind(self.verify_target_input(local))
@@ -58,7 +56,7 @@ class reise(object):
             self._tcp.listen(10)
 
             while 1:
-                reise.ClientThread(l4, self._target, size, self._tcp.accept()).start()
+                reise.ClientThread(self._l4, self._target, self._size, self._tcp.accept()).start()
 
     class udpProxy(tcpProxy):
 
@@ -97,8 +95,8 @@ class reise(object):
 
 
     class ClientThread(threading.Thread):
-        def __init__(self, l4, target, sokit, local=None):
-            self.SIZE = 506
+        def __init__(self, l4, target, size, sokit, local=None):
+            self.SIZE = size
             self.TIMEOUT = 2
             self.target = target
             self.l4 = l4
@@ -280,31 +278,30 @@ class reise(object):
             for i in self.fragment_and_sequence(''.join(data)):
                 self.loc.sendto(i, addr)
             out.close()
-            
-
-#scaffolding
+    
 if __name__ == '__main__':
 
-    #working on CLI arguments and finally and final structure of program 
     parser = argparse.ArgumentParser()
     parser.add_argument('-l', '--local', help = 'The local [ip:port] on which to listen to,\
                                      blank is 127.0.0.1  AUTO is set by socket.getfqdn()',
                                     default = '127.0.0.0:8088')
     parser.add_argument('-t', '--target', help = 'The target host [ip:port], blank on tcp defaults to \
                                          global, blank on udp defaults to localhost', )
-    parser.add_argument('-p', '--protocol', help = 'Outbound protocl to use. Default tcp or udp for \
-                                         udp', default = 'tcp')
-    parser.add_argument('-n', '--nthreads', help = 'The number of connection/receive threads to \
-                                            run, blank is 6', default = 6)
-    parser.add_argument('-r', '--proxy', help = 'Type of proxy to run on the local machine',
-                                         default = 'tcp')
+    parser.add_argument('-p', '--protocol', help = 'Outbound protocl to use [http/tcp/udp]. \
+                            Use http if this is the exit node, tcp for connectivity \
+                            between tcp nodes and udp for connectivity between \
+                             udp nodes.', default = 'http')
+    parser.add_argument('-n', '--node', help = '[tcp/udp] - Set the local node type. Default: TCP.', 
+                                        default = 'tcp')
+    parser.add_argument('-s', '--size', help = 'Adjust the size of udp packets if using \
+                                        udpProxy. Default is 506.', default = 506)
+
     args = parser.parse_args()
-
-    print args
-
-    print args.local
-    print args.protocol
-
-    #placeholder code for now
-    proxy = tcpProxy(target, port, threads, protocol)
-    proxy.run()
+    if args.node == 'tcp':
+        proxy = reise.tcpProxy(args.local, args.target, args.size, args.protocol)
+        proxy.start()
+    elif args.node == 'udp':
+        proxy = reise.udpProxy(args.local, args.target, args.size, args.protocol)
+        proxy.start()
+    else:
+        print 'Type \'reise.py -h\' for help'
